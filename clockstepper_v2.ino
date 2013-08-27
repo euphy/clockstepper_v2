@@ -21,6 +21,11 @@ electrically wired to switches at both ends of each rail.
 
 This should be fairly simple self-explanatory code.
 
+@TODO  Reserve pins for LDR and lighting controller (PWM).
+@TODO  Write clock size into EEPROM when it changes so it doesn't have to recalibrate every time it resets.
+@TODO  Reserve pins for physical buttons.
+@TODO  
+
 */
 
 /* Clock setup */
