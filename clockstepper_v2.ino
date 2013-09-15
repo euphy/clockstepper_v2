@@ -310,21 +310,32 @@ void homeHands()
       // creep until trigger cleared
       minuteHand.move(100*stepSize);
       while (minuteHand.distanceToGo() != 0) {
-        Serial.println("minute creeping...");
-        Serial.println(minuteHand.distanceToGo());
+        Serial.print("minute creeping... ");
+        Serial.print(minuteHand.distanceToGo());
+        Serial.print(", speed: ");
+        Serial.println(minuteHand.speed());
         minuteHand.run();
         if (digitalRead(minuteLimitPin) != LOW) {
           Serial.println("Limit switch released (a).");
+          minuteHand.moveTo(minuteHand.currentPosition());
+          minuteHand.setSpeed(0);
           break;
         }
       }
       minuteHand.move(END_MARGIN*stepSize);
-      while (minuteHand.distanceToGo() != 0) minuteHand.run();
+      while (minuteHand.distanceToGo() != 0) {
+        Serial.print("Adding margin ");
+        Serial.print(minuteHand.distanceToGo());
+        Serial.print(", speedd: ");
+        Serial.println(minuteHand.speed());
+        minuteHand.run();
+      }
       
       mLimitTriggered = false;
       minuteHand.disableOutputs();
       minuteHand.setCurrentPosition(0);
       minuteHand.moveTo(minuteHand.currentPosition());
+      minuteHand.setSpeed(0);
       Serial.println("Minute rewind finished.");
     }
     if (minuteWinding) {
@@ -344,7 +355,8 @@ void homeHands()
       // creep until trigger cleared
       hourHand.move(100*stepSize);
       while (hourHand.distanceToGo() != 0) {
-        Serial.println("hour creeping...");
+        Serial.print("hour creeping...");
+        Serial.println(hourHand.distanceToGo());
         hourHand.run();
         if (digitalRead(hourLimitPin) != LOW) {
           Serial.println("Limit switch released (b).");
@@ -357,7 +369,8 @@ void homeHands()
       hourHand.disableOutputs();
       hLimitTriggered = false;
       hourHand.setCurrentPosition(0);
-      hourHand.moveTo(0);
+      hourHand.moveTo(hourHand.currentPosition());
+      hourHand.setSpeed(0);
       
       Serial.println("Hour rewind finished.");
     }
@@ -375,20 +388,62 @@ void homeHands()
 
   // so now test the full length
   Serial.println("Winding forward to detect length of clock...");
+  detectLengthOfClock();
+
+  Serial.println("HOMED!!");
+  Serial.print("Minute axis is ");
+  Serial.print(stepsPerClockMinute);
+  Serial.println(" true steps long.");
+  Serial.print("Houre axis is ");
+  Serial.print(stepsPerClockHour);
+  Serial.println(" true steps long.");
+}
+
+void detectLengthOfClock()
+{
+  Serial.print("Minute current position: ");
+  Serial.print(minuteHand.currentPosition());
+  Serial.print(", distance to go: ");
+  Serial.print(minuteHand.distanceToGo());
+  Serial.print(", speed: ");
+  Serial.print(minuteHand.speed());
+  Serial.print(", target:" );
+  Serial.println(minuteHand.targetPosition());
+  Serial.print("Hour current position: ");
+  Serial.print(hourHand.currentPosition());
+  Serial.print(", distance to go: ");
+  Serial.print(hourHand.distanceToGo());
+  Serial.print(", speed: ");
+  Serial.print(hourHand.speed());
+  Serial.print(", target:" );
+  Serial.println(hourHand.targetPosition());
+
+
   minuteWinding = true;
   hourWinding = true;
   minuteHand.enableOutputs();
   hourHand.enableOutputs();
+  
+  minuteHand.setMaxSpeed(maxSpeed);
+  hourHand.setMaxSpeed(maxSpeed);
  
   while (minuteWinding || hourWinding) {
     if (mLimitTriggered && minuteWinding) {
       Serial.println("Minute limit triggered.");
       minuteWinding = false;
+      Serial.print("Current position at trigger ");
+      Serial.println(minuteHand.currentPosition());
+      minuteHand.moveTo(minuteHand.currentPosition());
 
       // creep until trigger cleared
       minuteHand.move(-(100*stepSize));
+      // not sure why this speed needs to be manually reversed, but it does.
       while (minuteHand.distanceToGo() != 0) {
-        Serial.println("min reverse creeping...");
+        Serial.print("min reverse creeping... ");
+        Serial.print(minuteHand.distanceToGo());
+        Serial.print(", speedd: ");
+        Serial.println(minuteHand.speed());
+        
         minuteHand.run();
         if (digitalRead(minuteLimitPin) != LOW) {
           Serial.println("Limit switch released (c).");
@@ -396,8 +451,14 @@ void homeHands()
         }
       }
 
-      minuteHand.move(-(END_MARGIN*stepSize));
-      while (minuteHand.distanceToGo() != 0) minuteHand.run();
+      minuteHand.move(-(END_MARGIN*stepSize*10));
+      while (minuteHand.distanceToGo() != 0) {
+        Serial.print("Adding minute margin ");
+        Serial.print(minuteHand.distanceToGo());
+        Serial.print(", speedd: ");
+        Serial.println(minuteHand.speed());
+        minuteHand.run();
+      }
       stepsPerClockMinute = minuteHand.currentPosition();
       recalculateStepsPerUnits();
       mLimitTriggered = false;
@@ -412,11 +473,15 @@ void homeHands()
     }
     if (hLimitTriggered && hourWinding) {
       hourWinding = false;
+      hourHand.moveTo(hourHand.currentPosition());
       
       // creep until trigger cleared
       hourHand.move(-(100*stepSize));
       while (hourHand.distanceToGo() != 0) {
-        Serial.println("hour reverse creeping...");
+        Serial.print("hour reverse creeping... ");
+        Serial.print(hourHand.distanceToGo());
+        Serial.print(", speedd: ");
+        Serial.println(hourHand.speed());
         hourHand.run();
         if (digitalRead(hourLimitPin) != LOW) {
           Serial.println("Limit switch released (d).");
@@ -425,7 +490,13 @@ void homeHands()
       }
 
       hourHand.move(-(END_MARGIN*stepSize));
-      while (hourHand.distanceToGo() != 0) hourHand.run();
+      while (hourHand.distanceToGo() != 0) {
+        Serial.print("Adding hour margin ");
+        Serial.print(hourHand.distanceToGo());
+        Serial.print(", speedd: ");
+        Serial.println(hourHand.speed());
+        hourHand.run();
+      }
       stepsPerClockHour = hourHand.currentPosition();
       recalculateStepsPerUnits();
       hLimitTriggered = false;
@@ -447,14 +518,6 @@ void homeHands()
 
   minuteHand.disableOutputs();
   hourHand.disableOutputs();
-
-  Serial.println("HOMED!!");
-  Serial.print("Minute axis is ");
-  Serial.print(stepsPerClockMinute);
-  Serial.println(" true steps long.");
-  Serial.print("Houre axis is ");
-  Serial.print(stepsPerClockHour);
-  Serial.println(" true steps long.");
 }
 
 void moveHands()
