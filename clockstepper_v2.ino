@@ -51,28 +51,28 @@ byte stepSize = 8;
 boolean motorsEnabled = false;
 
 // Minutes setup
-int startMinutePos = 0;
-int currentMinutePos = startMinutePos;
+long startMinutePos = 0L;
+long currentMinutePos = startMinutePos;
 
 // Hours setup
-int startHourPos = 0;
-int currentHourPos = startHourPos;
+long startHourPos = 0L;
+long currentHourPos = startHourPos;
 
 // These are the actual time, in seconds minutes and hours.  
 // findTimeToDisplay() writes these values, and renderTime() reads them.
-int currentSeconds = 0;
-int currentMinutes = 0;
-int currentHours = 0;
+long currentSeconds = 0L;
+long currentMinutes = 0L;
+long currentHours = 0L;
 
 /* This is the number of steps to move the indicator from one end to the other. */
-static int stepsPerClockMinute = 2105;
-static int stepsPerClockHour = 2105;
+static long stepsPerClockMinute = 2105L;
+static long stepsPerClockHour = 2105L;
 
 float stepsPerMinute = stepsPerClockMinute/60.0;
 float stepsPerHourMinute = stepsPerClockHour/720.0;
 float stepsPerHour = stepsPerClockHour/12.0;
 
-int const END_MARGIN = 4;
+int const END_MARGIN = 10;
 
 /* User interface */
 
@@ -119,7 +119,7 @@ void hLimit()
 
 void setup() 
 {
-  Serial.begin(9600);
+  Serial.begin(57600);
   Serial.println("LINEAR CLOCK.");
 
   // attach limit interrupts
@@ -162,6 +162,8 @@ void setup()
   
   recalculateStepsPerUnits();
   homeHands();
+  hourHand.enableOutputs();
+  minuteHand.enableOutputs();
 }
 
 void recalculateStepsPerUnits() {
@@ -174,11 +176,13 @@ void recalculateStepsPerUnits() {
 
 void loop() 
 {
+  Serial.println("b");
   findTimeToDisplay();
   setHandPositions();
   moveHands();
-  dealWithLimits();
-  debug();
+//  dealWithLimits();
+//  debug();
+  Serial.println("e");
 }
 
 void dealWithLimits()
@@ -220,11 +224,11 @@ void dealWithLimits()
 
 void debug()
 {
-  long now = millis();
-  if ((now - lastDebugMessageTime) > 2000)
+  Serial.println("db");
+  if ((millis() - lastDebugMessageTime) > 2000)
   {
     reportPosition();
-    lastDebugMessageTime = now;
+    lastDebugMessageTime = millis();
   }
 }
 
@@ -289,14 +293,40 @@ void homeHands()
   clearEndStops(hourLimitPin, hourHand);
   hLimitTriggered = false;
   
-  // run backwards, slowly until sensor is triggered.
+  rewindHands();
+  // so now test the full length
+  Serial.println("Winding forward to detect length of clock...");
+  detectLengthOfClock();
+
+  mDir = FORWARD;
+  hDir = FORWARD;
+  
+  minuteHand.moveTo(minuteHand.currentPosition());
+  hourHand.moveTo(hourHand.currentPosition());
+  minuteHand.setSpeed(0);
+  hourHand.setSpeed(0);
+
+  Serial.println("HOMED!!");
+  Serial.print("Minute axis is ");
+  Serial.print(stepsPerClockMinute);
+  Serial.print(" steps long (");
+  Serial.print(stepsPerClockMinute*stepSize);
+  Serial.println(" microsteps).");
+  Serial.print("Hour axis is ");
+  Serial.print(stepsPerClockHour);
+  Serial.print(" steps long (");
+  Serial.print(stepsPerClockHour*stepSize);
+  Serial.println(" microsteps).");
+}
+
+void rewindHands()
+{
+  // run backwards, until sensor is triggered.
   Serial.println("Minute hand not home.");
-  mDir = BACKWARD;
   minuteWinding = true;
   minuteHand.enableOutputs();
   
   Serial.println("Hour hand not at home.");
-  hDir = BACKWARD;
   hourWinding = true;
   hourHand.enableOutputs();
 
@@ -315,10 +345,12 @@ void homeHands()
       // creep until trigger cleared
       minuteHand.move(100*stepSize);
       while (minuteHand.distanceToGo() != 0) {
-        Serial.print("minute creeping... ");
-        Serial.print(minuteHand.distanceToGo());
-        Serial.print(", speed: ");
-        Serial.println(minuteHand.speed());
+        if (debugToSerial) {
+          Serial.print("minute creeping... ");
+          Serial.print(minuteHand.distanceToGo());
+          Serial.print(", speed: ");
+          Serial.println(minuteHand.speed());
+        }
         minuteHand.run();
         if (digitalRead(minuteLimitPin) != LOW) {
           Serial.println("Limit switch released (a).");
@@ -329,10 +361,12 @@ void homeHands()
       }
       minuteHand.move(END_MARGIN*stepSize);
       while (minuteHand.distanceToGo() != 0) {
-        Serial.print("Adding margin ");
-        Serial.print(minuteHand.distanceToGo());
-        Serial.print(", speedd: ");
-        Serial.println(minuteHand.speed());
+        if (debugToSerial) {
+          Serial.print("Adding margin ");
+          Serial.print(minuteHand.distanceToGo());
+          Serial.print(", speed: ");
+          Serial.println(minuteHand.speed());
+        }
         minuteHand.run();
       }
       
@@ -358,8 +392,6 @@ void homeHands()
       // creep until trigger cleared
       hourHand.move(100*stepSize);
       while (hourHand.distanceToGo() != 0) {
-        Serial.print("hour creeping...");
-        Serial.println(hourHand.distanceToGo());
         hourHand.run();
         if (digitalRead(hourLimitPin) != LOW) {
           hourHand.moveTo(minuteHand.currentPosition());
@@ -386,39 +418,28 @@ void homeHands()
       }
     }
   }
-
-
-  // so now test the full length
-  Serial.println("Winding forward to detect length of clock...");
-  detectLengthOfClock();
-
-  Serial.println("HOMED!!");
-  Serial.print("Minute axis is ");
-  Serial.print(stepsPerClockMinute);
-  Serial.println(" true steps long.");
-  Serial.print("Houre axis is ");
-  Serial.print(stepsPerClockHour);
-  Serial.println(" true steps long.");
 }
 
 void detectLengthOfClock()
 {
-  Serial.print("Minute current position: ");
-  Serial.print(minuteHand.currentPosition());
-  Serial.print(", distance to go: ");
-  Serial.print(minuteHand.distanceToGo());
-  Serial.print(", speed: ");
-  Serial.print(minuteHand.speed());
-  Serial.print(", target:" );
-  Serial.println(minuteHand.targetPosition());
-  Serial.print("Hour current position: ");
-  Serial.print(hourHand.currentPosition());
-  Serial.print(", distance to go: ");
-  Serial.print(hourHand.distanceToGo());
-  Serial.print(", speed: ");
-  Serial.print(hourHand.speed());
-  Serial.print(", target:" );
-  Serial.println(hourHand.targetPosition());
+  if (debugToSerial) {
+    Serial.print("Minute current position: ");
+    Serial.print(minuteHand.currentPosition());
+    Serial.print(", distance to go: ");
+    Serial.print(minuteHand.distanceToGo());
+    Serial.print(", speed: ");
+    Serial.print(minuteHand.speed());
+    Serial.print(", target:" );
+    Serial.println(minuteHand.targetPosition());
+    Serial.print("Hour current position: ");
+    Serial.print(hourHand.currentPosition());
+    Serial.print(", distance to go: ");
+    Serial.print(hourHand.distanceToGo());
+    Serial.print(", speed: ");
+    Serial.print(hourHand.speed());
+    Serial.print(", target:" );
+    Serial.println(hourHand.targetPosition());
+  }
 
 
   minuteWinding = true;
@@ -439,24 +460,17 @@ void detectLengthOfClock()
       Serial.print("Current position at trigger ");
       Serial.println(minuteHand.currentPosition());
       minuteHand.moveTo(minuteHand.currentPosition());
-      Serial.print("BRAKING! ");
-      Serial.print(minuteHand.distanceToGo());
-      Serial.print(", speedd: ");
-      Serial.println(minuteHand.speed());
       minuteHand.setSpeed(0);
-      Serial.print("BROKE. ");
-      Serial.print(minuteHand.distanceToGo());
-      Serial.print(", speedd: ");
-      Serial.println(minuteHand.speed());
 
       // creep until trigger cleared
       minuteHand.move(-(100*stepSize));
       while (minuteHand.distanceToGo() != 0) {
-        Serial.print("min reverse creeping... ");
-        Serial.print(minuteHand.distanceToGo());
-        Serial.print(", speedd: ");
-        Serial.println(minuteHand.speed());
-        
+        if (debugToSerial) {
+          Serial.print("min reverse creeping... ");
+          Serial.print(minuteHand.distanceToGo());
+          Serial.print(", speed: ");
+          Serial.println(minuteHand.speed());
+        }
         minuteHand.run();
         if (digitalRead(minuteLimitPin) != LOW) {
           Serial.println("Limit switch released (c).");
@@ -467,13 +481,15 @@ void detectLengthOfClock()
 
       minuteHand.move(-(END_MARGIN*stepSize));
       while (minuteHand.distanceToGo() != 0) {
-        Serial.print("Adding minute margin ");
-        Serial.print(minuteHand.distanceToGo());
-        Serial.print(", speedd: ");
-        Serial.println(minuteHand.speed());
+        if (debugToSerial) {
+          Serial.print("Adding minute margin ");
+          Serial.print(minuteHand.distanceToGo());
+          Serial.print(", speed: ");
+          Serial.println(minuteHand.speed());
+        }
         minuteHand.run();
       }
-      stepsPerClockMinute = minuteHand.currentPosition();
+      stepsPerClockMinute = minuteHand.currentPosition()/stepSize;
       recalculateStepsPerUnits();
       mLimitTriggered = false;
       Serial.println("Minute size detection finished.");
@@ -487,10 +503,12 @@ void detectLengthOfClock()
       // creep until trigger cleared
       hourHand.move(-(100*stepSize));
       while (hourHand.distanceToGo() != 0) {
-        Serial.print("hour reverse creeping... ");
-        Serial.print(hourHand.distanceToGo());
-        Serial.print(", speedd: ");
-        Serial.println(hourHand.speed());
+        if (debugToSerial) {
+          Serial.print("hour reverse creeping... ");
+          Serial.print(hourHand.distanceToGo());
+          Serial.print(", speedd: ");
+          Serial.println(hourHand.speed());
+        }
         hourHand.run();
         if (digitalRead(hourLimitPin) != LOW) {
           Serial.println("Limit switch released (d).");
@@ -501,13 +519,15 @@ void detectLengthOfClock()
 
       hourHand.move(-(END_MARGIN*stepSize));
       while (hourHand.distanceToGo() != 0) {
-        Serial.print("Adding hour margin ");
-        Serial.print(hourHand.distanceToGo());
-        Serial.print(", speedd: ");
-        Serial.println(hourHand.speed());
+        if (debugToSerial) {
+          Serial.print("Adding hour margin ");
+          Serial.print(hourHand.distanceToGo());
+          Serial.print(", speedd: ");
+          Serial.println(hourHand.speed());
+        }
         hourHand.run();
       }
-      stepsPerClockHour = hourHand.currentPosition();
+      stepsPerClockHour = hourHand.currentPosition()/stepSize;
       recalculateStepsPerUnits();
       hLimitTriggered = false;
       Serial.println("Hour size detection finished.");
@@ -520,36 +540,35 @@ void detectLengthOfClock()
       minuteHand.run();
     }
   }
-
-
-  minuteHand.setMaxSpeed(maxSpeed);
-  mDir = FORWARD;
-  hourHand.setMaxSpeed(maxSpeed);
-  hDir = FORWARD;
-
   minuteHand.disableOutputs();
   hourHand.disableOutputs();
 }
 
 void moveHands()
 {
-  if (hourHand.distanceToGo() >= stepSize || minuteHand.distanceToGo() >= stepSize)
+  Serial.println("mh");
+  if (abs(hourHand.distanceToGo()) >= stepSize || abs(minuteHand.distanceToGo()) >= stepSize)
   {
+    Serial.println("mv");
     if (!motorsEnabled) {
       hourHand.enableOutputs();
       minuteHand.enableOutputs();
+      motorsEnabled = true;
     }
 
-    if (debugToSerial) {
+    if (false) {
       Serial.print("Moving to ");
       Serial.print(currentHourPos);
       Serial.print(":");
       Serial.print(currentMinutePos);
-      Serial.print(" (");
+      Serial.print(" (to go ");
       Serial.print(hourHand.distanceToGo());
       Serial.print(":");
       Serial.print(minuteHand.distanceToGo());
-      Serial.println(")");
+      Serial.print("), speed: ");
+      Serial.print(hourHand.speed());
+      Serial.print(":");
+      Serial.println(minuteHand.speed());
     }
     
 
@@ -566,17 +585,11 @@ void moveHands()
       if (debugToSerial) Serial.println("running hour!");
       minuteHand.run();
     }
-    if (hourHand.distanceToGo() < stepSize || minuteHand.distanceToGo() < stepSize) {
+    if (abs(hourHand.distanceToGo()) < stepSize && abs(minuteHand.distanceToGo()) < stepSize) {
+      Serial.println("Disabling motors until there's enough steps to take");
       hourHand.disableOutputs();
       minuteHand.disableOutputs();
-    }
-    
-  }
-  else
-  {
-    if (debugToSerial) {
-      Serial.print("After moving: ");
-      reportPosition();
+      motorsEnabled = false;
     }
   }
 }
@@ -584,7 +597,8 @@ void moveHands()
 
 String reportPosition()
 {
-  Serial.print("Position: ");
+  Serial.println("rp");
+  Serial.print(F("Current Position: "));
   Serial.print(hourHand.currentPosition());
   Serial.print(":");
   Serial.print(minuteHand.currentPosition());
@@ -595,10 +609,24 @@ String reportPosition()
   Serial.print(":");
   Serial.print(currentSeconds);
   Serial.println(")");
+  Serial.print(F("Current target: "));
+  Serial.print(hourHand.targetPosition());
+  Serial.print(":");
+  Serial.print(minuteHand.targetPosition());
+  Serial.print(", (togo: ");
+  Serial.print(hourHand.distanceToGo());
+  Serial.print(":");
+  Serial.print(minuteHand.distanceToGo());
+  Serial.print("), speed: ");
+  Serial.print(hourHand.speed());
+  Serial.print(":");
+  Serial.println(minuteHand.speed());
+  Serial.println("rpend");
 }  
 
 void findTimeToDisplay()
 {
+  Serial.println("ft");
   DateTime now = RTC.now();
   if (debugToSerial) {
     Serial.print(now.year(), DEC);
@@ -630,6 +658,7 @@ void setHandPositions()
 
 void displayHour(long hour, long minute)
 {
+  Serial.println("dh");
   // work out the new position and set it globally eg time 4:25.
   // first hours
   // eg 0.2055 * 4 * 60 = 49.333
@@ -645,6 +674,9 @@ void displayHour(long hour, long minute)
   {
     Serial.print("Moving hour hand to ");
     Serial.print(currentHourPos);
+    Serial.print(" (");
+    Serial.print(currentHourPos*stepSize);
+    Serial.print(")");
     Serial.print(", to represent ");
     Serial.println(hour);
     hourHand.moveTo(currentHourPos*stepSize);
@@ -653,6 +685,7 @@ void displayHour(long hour, long minute)
 
 void displayMinute(long minute)
 {
+  Serial.println("dm");
   long oldMinutePos = currentMinutePos;
   // work out the new position and set it globally
   // eg 2.467 * 25 = 61.675
@@ -662,6 +695,9 @@ void displayMinute(long minute)
   {
     Serial.print("Moving minute hand to position ");
     Serial.print(currentMinutePos);
+    Serial.print(" (");
+    Serial.print(currentMinutePos*stepSize);
+    Serial.print(")");
     Serial.print(", to represent ");
     Serial.println(minute);
     
