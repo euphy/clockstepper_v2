@@ -299,6 +299,11 @@ void homeHands()
   hDir = BACKWARD;
   hourWinding = true;
   hourHand.enableOutputs();
+
+  minuteHand.setCurrentPosition(0);
+  minuteHand.move(-2147483648L);
+  hourHand.setCurrentPosition(0);
+  hourHand.move(-2147483648L);
   
   Serial.println("Winding backwards.");
 
@@ -339,9 +344,7 @@ void homeHands()
       Serial.println("Minute rewind finished.");
     }
     if (minuteWinding) {
-      minuteHand.move(-stepSize);
-      minuteHand.setSpeed(-maxSpeed);
-      minuteHand.runSpeed();
+      minuteHand.run();
       if (debugToSerial) {
         Serial.print("rewind minutes pos ");
         Serial.println(minuteHand.currentPosition());
@@ -359,6 +362,7 @@ void homeHands()
         Serial.println(hourHand.distanceToGo());
         hourHand.run();
         if (digitalRead(hourLimitPin) != LOW) {
+          hourHand.moveTo(minuteHand.currentPosition());
           Serial.println("Limit switch released (b).");
           break;
         }
@@ -375,9 +379,7 @@ void homeHands()
       Serial.println("Hour rewind finished.");
     }
     if (hourWinding) {
-      hourHand.move(-stepSize);
-      hourHand.setSpeed(-maxSpeed);
-      hourHand.runSpeed();
+      hourHand.run();
       if (debugToSerial) {
         Serial.print("rewind hours pos ");
         Serial.println(hourHand.currentPosition());
@@ -426,6 +428,9 @@ void detectLengthOfClock()
   
   minuteHand.setMaxSpeed(maxSpeed);
   hourHand.setMaxSpeed(maxSpeed);
+
+  minuteHand.moveTo(2147483647L);
+  hourHand.moveTo(2147483647L);
  
   while (minuteWinding || hourWinding) {
     if (mLimitTriggered && minuteWinding) {
@@ -434,10 +439,18 @@ void detectLengthOfClock()
       Serial.print("Current position at trigger ");
       Serial.println(minuteHand.currentPosition());
       minuteHand.moveTo(minuteHand.currentPosition());
+      Serial.print("BRAKING! ");
+      Serial.print(minuteHand.distanceToGo());
+      Serial.print(", speedd: ");
+      Serial.println(minuteHand.speed());
+      minuteHand.setSpeed(0);
+      Serial.print("BROKE. ");
+      Serial.print(minuteHand.distanceToGo());
+      Serial.print(", speedd: ");
+      Serial.println(minuteHand.speed());
 
       // creep until trigger cleared
       minuteHand.move(-(100*stepSize));
-      // not sure why this speed needs to be manually reversed, but it does.
       while (minuteHand.distanceToGo() != 0) {
         Serial.print("min reverse creeping... ");
         Serial.print(minuteHand.distanceToGo());
@@ -447,11 +460,12 @@ void detectLengthOfClock()
         minuteHand.run();
         if (digitalRead(minuteLimitPin) != LOW) {
           Serial.println("Limit switch released (c).");
+          minuteHand.moveTo(minuteHand.currentPosition());
           break;
         }
       }
 
-      minuteHand.move(-(END_MARGIN*stepSize*10));
+      minuteHand.move(-(END_MARGIN*stepSize));
       while (minuteHand.distanceToGo() != 0) {
         Serial.print("Adding minute margin ");
         Serial.print(minuteHand.distanceToGo());
@@ -465,15 +479,10 @@ void detectLengthOfClock()
       Serial.println("Minute size detection finished.");
     }
 
-    if (minuteWinding) {
-      minuteHand.move(stepSize);
-      minuteHand.setSpeed(maxSpeed);
-      minuteHand.runSpeed();
-//      Serial.println("forward wind minutes...");
-    }
     if (hLimitTriggered && hourWinding) {
       hourWinding = false;
       hourHand.moveTo(hourHand.currentPosition());
+      hourHand.setSpeed(0);
       
       // creep until trigger cleared
       hourHand.move(-(100*stepSize));
@@ -485,6 +494,7 @@ void detectLengthOfClock()
         hourHand.run();
         if (digitalRead(hourLimitPin) != LOW) {
           Serial.println("Limit switch released (d).");
+          hourHand.moveTo(hourHand.currentPosition());
           break;
         }
       }
@@ -502,12 +512,13 @@ void detectLengthOfClock()
       hLimitTriggered = false;
       Serial.println("Hour size detection finished.");
     }
+    
     if (hourWinding) {
-      hourHand.move(stepSize);
-      hourHand.setSpeed(maxSpeed);
-      hourHand.runSpeed();
-//      Serial.println("forward wind hours...");
+      hourHand.run();
     }      
+    if (minuteWinding) {
+      minuteHand.run();
+    }
   }
 
 
