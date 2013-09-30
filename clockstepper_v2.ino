@@ -41,11 +41,11 @@ const byte motorbEnablePin = 6;
 const byte motorbStepPin = 7;
 const byte motorbDirPin = 8;
 
-AccelStepper minuteHand(1,motoraStepPin, motoraDirPin); // minutes
-AccelStepper hourHand(1,motorbStepPin, motorbDirPin); // hours
+AccelStepper hourHand(1,motoraStepPin, motoraDirPin); // minutes
+AccelStepper minuteHand(1,motorbStepPin, motorbDirPin); // hours
 
-float maxSpeed = 2000.0;
-float acceleration = 1000.0;
+float maxSpeed = 1000.0;
+float acceleration = 4000.0;
 byte stepSize = 8;
 
 boolean motorsEnabled = false;
@@ -77,10 +77,15 @@ int const END_MARGIN = 10;
 /* User interface */
 
 long lastDebugMessageTime = 0L;
+long timeChecked = millis();
 
 /* Limits and interrupts */
 volatile boolean mLimitTriggered = false;
 volatile boolean hLimitTriggered = false;
+byte mLimitPulled = HIGH;
+byte hLimitPulled = LOW;
+byte hIntTrigger = RISING;
+byte mIntTrigger = FALLING;
 
 int minuteLimitPin = 19;
 int hourLimitPin = 18;
@@ -97,24 +102,27 @@ static boolean minuteWinding = true;
 static boolean hourWinding = true;
 
 boolean debugToSerial = false;
+boolean debugTriggers = false;
 
 
 void mLimit()
 {
-  static unsigned long lastInterrupt = 0;
-  unsigned long interruptTime = millis();
-  if (interruptTime - lastInterrupt > 50)
+  static unsigned long mlastInterrupt = 0;
+  unsigned long minterruptTime = millis();
+  if (minterruptTime - mlastInterrupt > 50) {
     mLimitTriggered = true;
-   lastInterrupt = interruptTime;
+  }
+  mlastInterrupt = minterruptTime;
 }
 
 void hLimit()
 {
-  static unsigned long lastInterrupt = 0;
-  unsigned long interruptTime = millis();
-  if (interruptTime - lastInterrupt > 50)
+  static unsigned long hlastInterrupt = 0;
+  unsigned long hinterruptTime = millis();
+  if (hinterruptTime - hlastInterrupt > 50) {
     hLimitTriggered = true;
-   lastInterrupt = interruptTime;
+  }
+  hlastInterrupt = hinterruptTime;
 }
 
 void setup() 
@@ -123,13 +131,13 @@ void setup()
   Serial.println("LINEAR CLOCK.");
 
   // attach limit interrupts
-  attachInterrupt(mInt, mLimit, FALLING);
+  attachInterrupt(mInt, mLimit, mIntTrigger);
   pinMode(minuteLimitPin, INPUT);
-  digitalWrite(minuteLimitPin, HIGH);
+  digitalWrite(minuteLimitPin, mLimitPulled);
 
-  attachInterrupt(hInt, hLimit, FALLING);
+  attachInterrupt(hInt, hLimit, hIntTrigger);
   pinMode(hourLimitPin, INPUT);
-  digitalWrite(hourLimitPin, HIGH);
+  digitalWrite(hourLimitPin, hLimitPulled);
 
   pinMode(motoraEnablePin, OUTPUT);
   digitalWrite(motoraEnablePin, HIGH);
@@ -176,13 +184,11 @@ void recalculateStepsPerUnits() {
 
 void loop() 
 {
-  Serial.println("b");
   findTimeToDisplay();
   setHandPositions();
   moveHands();
 //  dealWithLimits();
 //  debug();
-  Serial.println("e");
 }
 
 void dealWithLimits()
@@ -224,7 +230,6 @@ void dealWithLimits()
 
 void debug()
 {
-  Serial.println("db");
   if ((millis() - lastDebugMessageTime) > 2000)
   {
     reportPosition();
@@ -232,12 +237,13 @@ void debug()
   }
 }
 
-void clearEndStops(int &limitPin, AccelStepper &hand)
+void clearEndStops(int &limitPin, AccelStepper &hand, int closedState)
 {
   int distanceToBackOff = -(10*stepSize);
   hand.enableOutputs();
-  if (digitalRead(limitPin) == LOW) {
-    Serial.println("limit pin is low.");
+  Serial.println(digitalRead(limitPin));
+  if (digitalRead(limitPin) == closedState) {
+    Serial.println("limit pin is closed.");
     for (int range=0; range<(200); range++) {
       Serial.print("wiggling ");
       Serial.println(range);
@@ -247,20 +253,20 @@ void clearEndStops(int &limitPin, AccelStepper &hand)
       while (hand.distanceToGo() != 0) {
         Serial.println("Running backwards...");
         hand.run();
-        if (digitalRead(limitPin) != LOW) {
+        if (digitalRead(limitPin) != closedState) {
           Serial.println("Limit switch released (1).");
           break;
         }
       }
       // check if that worked,
-      if (digitalRead(limitPin) == LOW) {
+      if (digitalRead(limitPin) == closedState) {
         // looks like backwards didn't work, lets try forwards the same distance
         Serial.println("Testing in forwards direction.");
         hand.move(2*(range*stepSize));
         while (hand.distanceToGo() != 0) {
           Serial.println("Running forwards...");
           hand.run();
-          if (digitalRead(limitPin) != LOW) {
+          if (digitalRead(limitPin) != closedState) {
             Serial.println("Limit switch released (2).");
             distanceToBackOff = abs(distanceToBackOff);
             break;
@@ -268,7 +274,7 @@ void clearEndStops(int &limitPin, AccelStepper &hand)
         }
       }
       // if either of these worked, then break out this iterating loop
-      if (digitalRead(limitPin) != LOW) {
+      if (digitalRead(limitPin) != closedState) {
         Serial.println("Limit switch released (3).");
         break;
       }
@@ -288,9 +294,9 @@ void clearEndStops(int &limitPin, AccelStepper &hand)
 void homeHands()
 {
   // check to see if any sensors are already triggered and move the carriage if it is
-  clearEndStops(minuteLimitPin, minuteHand);
+  clearEndStops(minuteLimitPin, minuteHand, LOW);
   mLimitTriggered = false;
-  clearEndStops(hourLimitPin, hourHand);
+  clearEndStops(hourLimitPin, hourHand, HIGH);
   hLimitTriggered = false;
   
   rewindHands();
@@ -338,7 +344,15 @@ void rewindHands()
   Serial.println("Winding backwards.");
 
   while (minuteWinding || hourWinding) {
+    if (debugTriggers) {
+      Serial.print("A Triggered M:");
+      Serial.print(mLimitTriggered);
+      Serial.print(", H:");
+      Serial.println(hLimitTriggered);
+    }
+
     if (mLimitTriggered) {
+      Serial.println("M limit triggered.");
       minuteWinding = false;
       minuteHand.setCurrentPosition(0);
       minuteHand.moveTo(minuteHand.currentPosition());
@@ -352,8 +366,8 @@ void rewindHands()
           Serial.println(minuteHand.speed());
         }
         minuteHand.run();
-        if (digitalRead(minuteLimitPin) != LOW) {
-          Serial.println("Limit switch released (a).");
+        if (digitalRead(minuteLimitPin) == mLimitPulled) {
+          Serial.println("Limit switch minute released (a).");
           minuteHand.moveTo(minuteHand.currentPosition());
           minuteHand.setSpeed(0);
           break;
@@ -361,7 +375,7 @@ void rewindHands()
       }
       minuteHand.move(END_MARGIN*stepSize);
       while (minuteHand.distanceToGo() != 0) {
-        if (debugToSerial) {
+        if (debugTriggers) {
           Serial.print("Adding margin ");
           Serial.print(minuteHand.distanceToGo());
           Serial.print(", speed: ");
@@ -371,7 +385,7 @@ void rewindHands()
       }
       
       mLimitTriggered = false;
-      minuteHand.disableOutputs();
+//      minuteHand.disableOutputs();
       minuteHand.setCurrentPosition(0);
       minuteHand.moveTo(minuteHand.currentPosition());
       minuteHand.setSpeed(0);
@@ -384,6 +398,12 @@ void rewindHands()
         Serial.println(minuteHand.currentPosition());
       }
     }
+    if (debugTriggers) {
+      Serial.print("B Triggered M:");
+      Serial.print(mLimitTriggered);
+      Serial.print(", H:");
+      Serial.println(hLimitTriggered);
+    }
     
     if (hLimitTriggered) {
       hourWinding = false;
@@ -393,16 +413,16 @@ void rewindHands()
       hourHand.move(100*stepSize);
       while (hourHand.distanceToGo() != 0) {
         hourHand.run();
-        if (digitalRead(hourLimitPin) != LOW) {
-          hourHand.moveTo(minuteHand.currentPosition());
-          Serial.println("Limit switch released (b).");
+        if (digitalRead(hourLimitPin) == hLimitPulled) {
+          hourHand.moveTo(hourHand.currentPosition());
+          Serial.println("Limit switch hour released (b).");
           break;
         }
       }
       hourHand.move(END_MARGIN*stepSize);
       while (hourHand.distanceToGo() != 0) hourHand.run();
 
-      hourHand.disableOutputs();
+//      hourHand.disableOutputs();
       hLimitTriggered = false;
       hourHand.setCurrentPosition(0);
       hourHand.moveTo(hourHand.currentPosition());
@@ -410,6 +430,7 @@ void rewindHands()
       
       Serial.println("Hour rewind finished.");
     }
+    
     if (hourWinding) {
       hourHand.run();
       if (debugToSerial) {
@@ -472,7 +493,7 @@ void detectLengthOfClock()
           Serial.println(minuteHand.speed());
         }
         minuteHand.run();
-        if (digitalRead(minuteLimitPin) != LOW) {
+        if (digitalRead(minuteLimitPin) == mLimitPulled) {
           Serial.println("Limit switch released (c).");
           minuteHand.moveTo(minuteHand.currentPosition());
           break;
@@ -510,7 +531,7 @@ void detectLengthOfClock()
           Serial.println(hourHand.speed());
         }
         hourHand.run();
-        if (digitalRead(hourLimitPin) != LOW) {
+        if (digitalRead(hourLimitPin) == hLimitPulled) {
           Serial.println("Limit switch released (d).");
           hourHand.moveTo(hourHand.currentPosition());
           break;
@@ -546,10 +567,8 @@ void detectLengthOfClock()
 
 void moveHands()
 {
-  Serial.println("mh");
   if (abs(hourHand.distanceToGo()) >= stepSize || abs(minuteHand.distanceToGo()) >= stepSize)
   {
-    Serial.println("mv");
     if (!motorsEnabled) {
       hourHand.enableOutputs();
       minuteHand.enableOutputs();
@@ -626,28 +645,31 @@ String reportPosition()
 
 void findTimeToDisplay()
 {
-  Serial.println("ft");
-  DateTime now = RTC.now();
-  if (debugToSerial) {
-    Serial.print(now.year(), DEC);
-    Serial.print('/');
-    Serial.print(now.month(), DEC);
-    Serial.print('/');
-    Serial.print(now.day(), DEC);
-    Serial.print(' ');
-    Serial.print(now.hour(), DEC);
-    Serial.print(':');
-    Serial.print(now.minute(), DEC);
-    Serial.print(':');
-    Serial.print(now.second(), DEC);
-    Serial.println();
+  if (millis() - timeChecked > 500)
+  {
+    DateTime now = RTC.now();
+    if (debugToSerial) {
+      Serial.print(now.year(), DEC);
+      Serial.print('/');
+      Serial.print(now.month(), DEC);
+      Serial.print('/');
+      Serial.print(now.day(), DEC);
+      Serial.print(' ');
+      Serial.print(now.hour(), DEC);
+      Serial.print(':');
+      Serial.print(now.minute(), DEC);
+      Serial.print(':');
+      Serial.print(now.second(), DEC);
+      Serial.println();
+    }
+  
+    currentHours = now.hour();
+    if (currentHours >= 12)
+      currentHours = currentHours - 12;
+    currentMinutes = now.minute();
+    currentSeconds = now.second();
+    timeChecked = millis();
   }
-
-  currentHours = now.hour();
-  if (currentHours >= 12)
-    currentHours = currentHours - 12;
-  currentMinutes = now.minute();
-  currentSeconds = now.second();
 }
 
 void setHandPositions()
@@ -658,7 +680,6 @@ void setHandPositions()
 
 void displayHour(long hour, long minute)
 {
-  Serial.println("dh");
   // work out the new position and set it globally eg time 4:25.
   // first hours
   // eg 0.2055 * 4 * 60 = 49.333
@@ -685,7 +706,7 @@ void displayHour(long hour, long minute)
 
 void displayMinute(long minute)
 {
-  Serial.println("dm");
+  //Serial.println("dm");
   long oldMinutePos = currentMinutePos;
   // work out the new position and set it globally
   // eg 2.467 * 25 = 61.675
